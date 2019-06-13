@@ -47,7 +47,7 @@ def _strike_to_str(strike):
 
 
 def _to_occ_str(symbol, expiry, otype, strike):
-    return "{}{}{}{}".format(_pad_symbol(symbol), expiry.strftime(_OCC_DATE_FORMAT),
+    return "{}{}{}{}".format(_pad_symbol(symbol), pd.to_datetime(expiry).strftime(_OCC_DATE_FORMAT),
                              _to_otype(otype), _strike_to_str(strike))
 
 
@@ -117,4 +117,66 @@ class OccArray(ExtensionArray):
             formatted.append(_to_occ_str(symbol, expiry, put_or_call, strike))
         return formatted
 
+    @property
+    def is_call(self):
+        return self.data['otype'] == 0
 
+    @property
+    def is_put(self):
+        return self.data['otype'] == 1
+
+    def is_expired(self, date=None):
+        if not date:
+            date = pd.Timestamp.today()
+        return pd.to_datetime(self.data['expiry']) < date
+
+
+def delegated_method(method, index, name, *args, **kwargs):
+    return pd.Series(method(*args, **kwargs), index, name=name)
+
+
+class Delegated:
+    # Descriptor for delegating attribute access to from
+    # a Series to an underlying array
+
+    def __init__(self, name):
+        self.name = name
+
+    def __get__(self, obj, type=None):
+        index = object.__getattribute__(obj, '_index')
+        name = object.__getattribute__(obj, '_name')
+        result = self._get_result(obj)
+        return pd.Series(result, index, name=name)
+
+
+class DelegatedProperty(Delegated):
+    def _get_result(self, obj, type=None):
+        return getattr(object.__getattribute__(obj, '_data'), self.name)
+
+
+class DelegatedMethod(Delegated):
+    def __get__(self, obj, type=None):
+        index = object.__getattribute__(obj, '_index')
+        name = object.__getattribute__(obj, '_name')
+        method = getattr(object.__getattribute__(obj, '_data'), self.name)
+        return delegated_method(method, index, name)
+
+
+@pd.api.extensions.register_series_accessor('occ')
+class OccAccessor:
+
+    is_call = DelegatedProperty("is_call")
+    is_put = DelegatedProperty("is_put")
+
+    def __init__(self, obj):
+        self._validate(obj)
+        self._data = obj.values
+        self._index = obj.index
+        self._name = obj.name
+
+    @staticmethod
+    def _validate(obj):
+        return isinstance(obj.dtype, OccType)
+
+    def is_expired(self, date=None):
+        return delegated_method(self._data.is_expired, self._index, self._name, date)
