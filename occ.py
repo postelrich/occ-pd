@@ -165,9 +165,6 @@ class DelegatedMethod(Delegated):
 @pd.api.extensions.register_series_accessor('occ')
 class OccAccessor:
 
-    is_call = DelegatedProperty("is_call")
-    is_put = DelegatedProperty("is_put")
-
     def __init__(self, obj):
         self._validate(obj)
         self._data = obj.values
@@ -177,6 +174,28 @@ class OccAccessor:
     @staticmethod
     def _validate(obj):
         return isinstance(obj.dtype, OccType)
+
+    @property
+    def symbol(self):
+        return pd.Series(self._data.data['symbol'], self._index, self._name)
+
+    @property
+    def expiry(self):
+        return pd.Series(self._data.data['expiry'], self._index, self._name)
+
+    @property
+    def putcall(self):
+        return pd.Series(self._data.data['otype'], self._index, self._name).apply(_to_otype)
+
+    @property
+    def strike(self):
+        return pd.Series(self._data.data['strike'], self._index, self._name)
+
+    def is_call(self):
+        return delegated_method(self._data.is_call, self._index, self._name)
+
+    def is_put(self):
+        return delegated_method(self._data.is_put, self._index, self._name)
 
     def is_expired(self, date=None):
         return delegated_method(self._data.is_expired, self._index, self._name, date)
